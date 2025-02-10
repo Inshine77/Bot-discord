@@ -1,0 +1,149 @@
+import os
+import discord
+from discord.ext import commands
+
+# Créer un objet Intents pour activer les événements appropriés
+intents = discord.Intents.default()
+intents.members = True  # Permet de suivre les événements liés aux membres
+intents.reactions = True  # Permet de suivre les réactions
+intents.guilds = True  # Permet d'accéder aux salons et aux rôles
+intents.messages = True  # Permet de recevoir les messages
+
+# Créer une instance du bot avec un préfixe et les intents
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+# Stockage du nombre de tickets ouverts
+ticket_count = 0
+
+# ID de la catégorie où les tickets seront créés (remplace par l'ID correct)
+CATEGORY_ID = 1338208503294197822  # Remplace avec l'ID de ta catégorie
+
+# ID du rôle staff qui pourra voir les tickets (remplace par l'ID correct)
+STAFF_ROLE_ID = 987654321098765432  # Remplace avec l'ID du rôle staff
+
+# ID du salon 📥-demande-ticket et 📖-reglement
+DEMANDE_TICKET_CHANNEL_ID = 1338208503294197822  # Remplace avec l'ID du salon 📥-demande-ticket
+REGLEMENT_CHANNEL_ID = 1338188693730758791  # Remplace avec l'ID du salon 📖-reglement
+
+# Événement lorsque le bot est prêt
+@bot.event
+async def on_ready():
+    print(f'✅ Le bot {bot.user} est prêt !')
+
+# Événement lorsque le bot voit un membre rejoindre le serveur
+@bot.event
+async def on_member_join(member):
+    channel = discord.utils.get(member.guild.text_channels, name="💫-arrivée")
+
+    if channel:
+        print(f"Le membre {member.name} a rejoint le serveur, envoi du message dans {channel.name} !")
+        welcome_message = f"""🎉 **Attention, nouvelle recrue en approche !** 🎉
+
+Bienvenue {member.mention} dans **{member.guild.name}** ! 🚀  
+Tu viens de poser le pied dans une nouvelle aventure épique !  
+
+🔹 Lis le reglement 📖  
+🔹 Récupère ton rôle en réagissant ✅  
+🔹 Fais connaissance avec la communauté   
+
+Installe-toi confortablement, prends une 🍕 et amuse-toi bien ! 😎🎮
+"""
+        await channel.send(welcome_message)
+    else:
+        print(f"Aucun canal '💫-arrivée' trouvé dans le serveur !")
+
+# Événement pour gérer les réactions d'emoji sur un message spécifique (règlement et tickets)
+@bot.event
+async def on_raw_reaction_add(payload):
+    global ticket_count
+    guild = bot.get_guild(payload.guild_id)
+    member = guild.get_member(payload.user_id)
+
+    # Vérification pour le salon 📖-reglement
+    if payload.channel_id == REGLEMENT_CHANNEL_ID:
+        if str(payload.emoji) == "✅":
+            role = discord.utils.get(guild.roles, name="Membres")
+            if role and member:
+                await member.add_roles(role)
+                print(f"Le rôle 'Membres' a été attribué à {member.name}.")
+
+    # Vérification pour le salon 📥-demande-ticket
+    elif payload.channel_id == DEMANDE_TICKET_CHANNEL_ID:
+        if str(payload.emoji) == "🟢":
+            if member is None or member.bot:
+                return
+
+            # Incrémentation du compteur de tickets
+            ticket_count += 1
+            ticket_name = f"ticket-{ticket_count}"
+
+            # Trouver la catégorie où créer le ticket
+            category = discord.utils.get(guild.categories, id=CATEGORY_ID)
+            
+            # Si la catégorie n'est pas trouvée, afficher un message d'erreur
+            if category is None:
+                print(f"❌ La catégorie avec l'ID {CATEGORY_ID} n'a pas été trouvée.")
+                return
+
+            # Créer le salon privé
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(read_messages=False),  # Cache le salon pour tous
+                member: discord.PermissionOverwrite(read_messages=True, send_messages=True),  # Donne accès au demandeur
+                discord.utils.get(guild.roles, id=STAFF_ROLE_ID): discord.PermissionOverwrite(read_messages=True)  # Donne accès au staff
+            }
+
+            try:
+                channel = await guild.create_text_channel(ticket_name, category=category, overwrites=overwrites)
+
+                # Message dans le ticket
+                await channel.send(
+                    f"🎟️ **Ticket ouvert !**\n\n"
+                    f"Salut {member.mention} ! Un membre du staff va bientôt te répondre.\n"
+                    f"Explique ton problème en détail pour qu'on puisse t’aider au mieux ! 😊"
+                )
+
+                print(f"✅ Ticket créé : {channel.name} pour {member.name}")
+            except Exception as e:
+                print(f"❌ Erreur lors de la création du ticket : {e}")
+
+# Commande pour envoyer le message du règlement avec réaction ✅
+@bot.command()
+async def setup_reglement(ctx):
+    channel = discord.utils.get(ctx.guild.text_channels, name="📖-reglement")
+
+    if channel:
+        message = await channel.send(
+            "Bienvenue sur notre serveur !\n\n"
+            "Voici le règlement du serveur :\n"
+            "1. Respectez les autres membres.\n"
+            "2. Aucun contenu offensant.\n"
+            "3. Pas de spam.\n\n"
+            "Cliquez sur ✅ pour accepter et obtenir le rôle Membres."
+        )
+        await message.add_reaction("✅")
+    else:
+        print("❌ Aucun salon '📖-reglement' trouvé dans le serveur.")
+
+# Commande pour envoyer le message du système de tickets avec réaction 🟢
+@bot.command()
+async def setup_ticket(ctx):
+    channel = discord.utils.get(ctx.guild.text_channels, name="📥-demande-ticket")
+
+    if channel:
+        message = await channel.send(
+            "🟢 Besoin d'aide ou d'une optimisation ? Ouvre un ticket ! 🎟️\n\n"
+            "Tu souhaites une assistance personnalisée ou une optimisation ?\n"
+            "Aucun souci ! Clique sur la réaction 🟢 juste en dessous pour créer ton ticket.\n\n"
+            "✅ **Comment ça marche ?**\n"
+            "1️⃣ Clique sur 🟢 pour ouvrir un ticket.\n"
+            "2️⃣ Un salon privé sera créé pour toi.\n"
+            "3️⃣ Explique ton besoin et un membre du staff t’aidera !\n\n"
+            "🔒 **Seuls toi et le staff auront accès au ticket**\n"
+            "➡️ **Appuie sur 🟢 pour commencer !**"
+        )
+        await message.add_reaction("🟢")
+    else:
+        print("❌ Le salon 📥-demande-ticket n'a pas été trouvé !")
+
+# Récupérer le token du bot depuis une variable d'environnement
+token = os.environ['tokendiscord']
